@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Stuck de Motoristas - Consulta por ID</title>
+  <!-- Biblioteca PapaParse para leitura fácil de CSV -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.min.js"></script>
   <style>
     :root {
       --primary: #2563eb;
@@ -141,34 +143,14 @@
 
     <div id="status" class="status-msg"></div>
 
-    <div id="resultCard" class="result-card">
-      <!-- Os dados da planilha serão renderizados aqui -->
-    </div>
+    <div id="resultCard" class="result-card"></div>
   </div>
 
   <script>
-    // Link direto de exportação CSV da planilha
-    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSQMATMAFhb-UsfR4uX-nmjZRS4kJEXWBYcp0-EezWCZVDuSasM7uEnZuSmFxMJHOrfEdcqlL27pZGY/pub?gid=0&single=true&output=csv';
+    // URL via Corsproxy para evitar bloqueios do navegador
+    const CSV_URL = 'https://corsproxy.io/?' + encodeURIComponent('https://docs.google.com/spreadsheets/d/e/2PACX-1vSQMATMAFhb-UsfR4uX-nmjZRS4kJEXWBYcp0-EezWCZVDuSasM7uEnZuSmFxMJHOrfEdcqlL27pZGY/pub?gid=0&single=true&output=csv');
 
-    function parseCSV(text) {
-      const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-      if (lines.length === 0) return [];
-      
-      const headers = lines[0].split(',').map(header => header.replace(/^"(.*)"$/, '$1').trim());
-      
-      return lines.slice(1).map(line => {
-        const values = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
-        const row = {};
-        headers.forEach((header, index) => {
-          let val = values[index] ? values[index].trim() : '';
-          val = val.replace(/^"(.*)"$/, '$1');
-          row[header] = val;
-        });
-        return row;
-      });
-    }
-
-    async function buscarInformacoes() {
+    function buscarInformacoes() {
       const idBuscado = document.getElementById('idInput').value.trim();
       const statusDiv = document.getElementById('status');
       const resultCard = document.getElementById('resultCard');
@@ -184,48 +166,54 @@
       statusDiv.innerText = 'Carregando dados...';
       resultCard.style.display = 'none';
 
-      try {
-        const response = await fetch(CSV_URL);
-        const csvData = await response.text();
-        const dados = parseCSV(csvData);
+      // PapaParse faz o download e interpretação automática do CSV
+      Papa.parse(CSV_URL, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          const dados = results.data;
 
-        // Busca o ID ignorando letras maiúsculas/minúsculas
-        const registroEncontrado = dados.find(item => {
-          const idColuna = item['ID'] || item['id'] || item[Object.keys(item)[0]];
-          return idColuna && idColuna.toLowerCase() === idBuscado.toLowerCase();
-        });
-
-        if (registroEncontrado) {
-          statusDiv.innerText = '';
-          resultCard.innerHTML = '';
-
-          Object.entries(registroEncontrado).forEach(([coluna, valor]) => {
-            const group = document.createElement('div');
-            group.className = 'info-group';
-
-            const label = document.createElement('div');
-            label.className = 'info-label';
-            label.innerText = coluna;
-
-            const val = document.createElement('div');
-            val.className = 'info-value';
-            val.innerText = valor || 'N/A';
-
-            group.appendChild(label);
-            group.appendChild(val);
-            resultCard.appendChild(group);
+          // Localiza a linha equivalente ao ID digitado
+          const registroEncontrado = dados.find(item => {
+            const primeiraChave = Object.keys(item)[0];
+            const idColuna = item['ID'] || item['id'] || item[primeiraChave];
+            return idColuna && String(idColuna).trim().toLowerCase() === idBuscado.toLowerCase();
           });
 
-          resultCard.style.display = 'block';
-        } else {
+          if (registroEncontrado) {
+            statusDiv.innerText = '';
+            resultCard.innerHTML = '';
+
+            Object.entries(registroEncontrado).forEach(([coluna, valor]) => {
+              const group = document.createElement('div');
+              group.className = 'info-group';
+
+              const label = document.createElement('div');
+              label.className = 'info-label';
+              label.innerText = coluna;
+
+              const val = document.createElement('div');
+              val.className = 'info-value';
+              val.innerText = valor || 'N/A';
+
+              group.appendChild(label);
+              group.appendChild(val);
+              resultCard.appendChild(group);
+            });
+
+            resultCard.style.display = 'block';
+          } else {
+            statusDiv.className = 'status-msg error';
+            statusDiv.innerText = 'ID não encontrado. Por favor, confirme se digitou corretamente.';
+          }
+        },
+        error: function(err) {
+          console.error(err);
           statusDiv.className = 'status-msg error';
-          statusDiv.innerText = 'ID não encontrado. Por favor, confirme se digitou corretamente.';
+          statusDiv.innerText = 'Erro ao se conectar com a base de dados. Tente novamente mais tarde.';
         }
-      } catch (error) {
-        console.error(error);
-        statusDiv.className = 'status-msg error';
-        statusDiv.innerText = 'Erro ao se conectar com a base de dados. Tente novamente mais tarde.';
-      }
+      });
     }
   </script>
 </body>
