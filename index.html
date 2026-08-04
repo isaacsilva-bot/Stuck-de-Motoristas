@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stuck de Motoristas - Consulta por ID</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #1e293b;
+      --border: #e2e8f0;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      background: var(--card-bg);
+      width: 100%;
+      max-width: 500px;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 8px;
+      text-align: center;
+      color: var(--text);
+    }
+
+    p.subtitle {
+      font-size: 0.9rem;
+      color: #64748b;
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .search-box {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    input {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      border-color: var(--primary);
+    }
+
+    button {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    .result-card {
+      margin-top: 20px;
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+      display: none;
+    }
+
+    .info-group {
+      margin-bottom: 12px;
+    }
+
+    .info-label {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      color: #64748b;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .info-value {
+      font-size: 1.1rem;
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .status-msg {
+      text-align: center;
+      margin-top: 15px;
+      font-size: 0.95rem;
+    }
+
+    .error {
+      color: #ef4444;
+    }
+
+    .loading {
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Stuck de Motoristas</h1>
+    <p class="subtitle">Digite o seu ID intransferível para consultar as informações.</p>
+    
+    <div class="search-box">
+      <input type="text" id="idInput" placeholder="Digite seu ID..." />
+      <button onclick="buscarInformacoes()">Buscar</button>
+    </div>
+
+    <div id="status" class="status-msg"></div>
+
+    <div id="resultCard" class="result-card">
+      <!-- Os dados da planilha serão renderizados aqui -->
+    </div>
+  </div>
+
+  <script>
+    // Link direto de exportação CSV da planilha
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSQMATMAFhb-UsfR4uX-nmjZRS4kJEXWBYcp0-EezWCZVDuSasM7uEnZuSmFxMJHOrfEdcqlL27pZGY/pub?gid=0&single=true&output=csv';
+
+    function parseCSV(text) {
+      const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+      if (lines.length === 0) return [];
+      
+      const headers = lines[0].split(',').map(header => header.replace(/^"(.*)"$/, '$1').trim());
+      
+      return lines.slice(1).map(line => {
+        const values = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
+        const row = {};
+        headers.forEach((header, index) => {
+          let val = values[index] ? values[index].trim() : '';
+          val = val.replace(/^"(.*)"$/, '$1');
+          row[header] = val;
+        });
+        return row;
+      });
+    }
+
+    async function buscarInformacoes() {
+      const idBuscado = document.getElementById('idInput').value.trim();
+      const statusDiv = document.getElementById('status');
+      const resultCard = document.getElementById('resultCard');
+
+      if (!idBuscado) {
+        statusDiv.className = 'status-msg error';
+        statusDiv.innerText = 'Por favor, digite um ID para buscar.';
+        resultCard.style.display = 'none';
+        return;
+      }
+
+      statusDiv.className = 'status-msg loading';
+      statusDiv.innerText = 'Carregando dados...';
+      resultCard.style.display = 'none';
+
+      try {
+        const response = await fetch(CSV_URL);
+        const csvData = await response.text();
+        const dados = parseCSV(csvData);
+
+        // Busca o ID ignorando letras maiúsculas/minúsculas
+        const registroEncontrado = dados.find(item => {
+          const idColuna = item['ID'] || item['id'] || item[Object.keys(item)[0]];
+          return idColuna && idColuna.toLowerCase() === idBuscado.toLowerCase();
+        });
+
+        if (registroEncontrado) {
+          statusDiv.innerText = '';
+          resultCard.innerHTML = '';
+
+          Object.entries(registroEncontrado).forEach(([coluna, valor]) => {
+            const group = document.createElement('div');
+            group.className = 'info-group';
+
+            const label = document.createElement('div');
+            label.className = 'info-label';
+            label.innerText = coluna;
+
+            const val = document.createElement('div');
+            val.className = 'info-value';
+            val.innerText = valor || 'N/A';
+
+            group.appendChild(label);
+            group.appendChild(val);
+            resultCard.appendChild(group);
+          });
+
+          resultCard.style.display = 'block';
+        } else {
+          statusDiv.className = 'status-msg error';
+          statusDiv.innerText = 'ID não encontrado. Por favor, confirme se digitou corretamente.';
+        }
+      } catch (error) {
+        console.error(error);
+        statusDiv.className = 'status-msg error';
+        statusDiv.innerText = 'Erro ao se conectar com a base de dados. Tente novamente mais tarde.';
+      }
+    }
+  </script>
+</body>
+</html>
