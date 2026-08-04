@@ -1,7 +1,6 @@
 <script>
-  // URL direta da API GViz do Google Sheets (não precisa de proxy e não dá bloqueio de CORS)
-  const SHEET_ID = '1vSQMATMAFhb-UsfR4uX-nmjZRS4kJEXWBYcp0-EezWCZVDuSasM7uEnZuSmFxMJHOrfEdcqlL27pZGY'; // Extraído do seu link original
-  const CSV_URL = `https://docs.google.com/spreadsheets/d/e/2PACX-${SHEET_ID}/pub?gid=0&single=true&output=csv`;
+  // ID público da sua planilha do Google
+  const SPREADSHEET_ID = '1vSQMATMAFhb-UsfR4uX-nmjZRS4kJEXWBYcp0-EezWCZVDuSasM7uEnZuSmFxMJHOrfEdcqlL27pZGY';
 
   const camposPermitidos = [
     { key: 'data_coleta', labels: ['data_coleta', 'data coleta', 'Data Coleta'] },
@@ -13,23 +12,29 @@
     { key: 'valor_pacote_brl', labels: ['valor_pacote_brl', 'Valor Pacote (BRL)', 'valor_pacote'] }
   ];
 
-  function parseCSV(text) {
-    const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
-    if (lines.length === 0) return [];
+  let dadosCarregados = null;
 
-    const headers = lines[0].split(',').map(h => h.replace(/^"(.*)"$/, '$1').trim());
+  // Função Global de Callback chamada pela API do Google Sheets via JSONP
+  window.processarDadosGoogle = function(jsonPayload) {
+    if (!jsonPayload || !jsonPayload.table) {
+      exibirErro('Erro ao ler a estrutura da planilha.');
+      return;
+    }
 
-    return lines.slice(1).map(line => {
-      const values = line.split(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/);
-      const row = {};
-      headers.forEach((header, index) => {
-        let val = values[index] ? values[index].trim() : '';
-        val = val.replace(/^"(.*)"$/, '$1').trim();
-        row[header] = val;
+    const cols = jsonPayload.table.cols.map(c => c ? c.label : '');
+    const rows = jsonPayload.table.rows;
+
+    dadosCarregados = rows.map(r => {
+      const obj = {};
+      r.c.forEach((cell, idx) => {
+        const colName = cols[idx] || `col_${idx}`;
+        obj[colName] = cell ? (cell.v !== null ? String(cell.v) : '') : '';
       });
-      return row;
+      return obj;
     });
-  }
+
+    executarFiltroEPintar();
+  };
 
   function obterValorColuna(row, aliases) {
     for (const alias of aliases) {
@@ -41,15 +46,71 @@
     return 'N/A';
   }
 
-  async function buscarInformacoes() {
+  function exibirErro(mensagem) {
+    const statusDiv = document.getElementById('status');
+    const cardsGrid = document.getElementById('cardsGrid');
+    statusDiv.className = 'status-msg error';
+    statusDiv.innerText = mensagem;
+    cardsGrid.innerHTML = '';
+  }
+
+  function executarFiltroEPintar() {
+    const idBuscado = document.getElementById('idInput').value.trim();
+    const statusDiv = document.getElementById('status');
+    const cardsGrid = document.getElementById('cardsGrid');
+
+    if (!dadosCarregados || dadosCarregados.length === 0) {
+      exibirErro('Nenhum dado retornado da planilha.');
+      return;
+    }
+
+    const registrosEncontrados = dadosCarregados.filter(item => {
+      const primeiraChave = Object.keys(item)[0];
+      const idColuna = item['driver_id'] || item['ID'] || item['id'] || item[primeiraChave];
+      return idColuna && String(idColuna).trim().toLowerCase() === idBuscado.toLowerCase();
+    });
+
+    if (registrosEncontrados.length > 0) {
+      statusDiv.innerText = '';
+      cardsGrid.innerHTML = '';
+
+      registrosEncontrados.forEach(registro => {
+        const card = document.createElement('div');
+        card.className = 'info-card';
+
+        camposPermitidos.forEach(campo => {
+          const valor = obterValorColuna(registro, campo.labels);
+
+          const itemDiv = document.createElement('div');
+          itemDiv.className = 'info-item';
+
+          const label = document.createElement('span');
+          label.className = 'info-label';
+          label.innerText = campo.key;
+
+          const val = document.createElement('span');
+          val.className = 'info-value';
+          val.innerText = valor;
+
+          itemDiv.appendChild(label);
+          itemDiv.appendChild(val);
+          card.appendChild(itemDiv);
+        });
+
+        cardsGrid.appendChild(card);
+      });
+    } else {
+      exibirErro('Nenhum registro encontrado para este ID.');
+    }
+  }
+
+  function buscarInformacoes() {
     const idBuscado = document.getElementById('idInput').value.trim();
     const statusDiv = document.getElementById('status');
     const cardsGrid = document.getElementById('cardsGrid');
 
     if (!idBuscado) {
-      statusDiv.className = 'status-msg error';
-      statusDiv.innerText = 'Por favor, digite um ID para buscar.';
-      cardsGrid.innerHTML = '';
+      exibirErro('Por favor, digite um ID para buscar.');
       return;
     }
 
@@ -57,56 +118,19 @@
     statusDiv.innerText = 'Carregando dados...';
     cardsGrid.innerHTML = '';
 
-    try {
-      // Faz o fetch direto da URL publicada pelo Google Sheets
-      const response = await fetch(CSV_URL);
-      if (!response.ok) throw new Error('Falha ao baixar os dados');
+    // Remove script antigo se existir
+    const oldScript = document.getElementById('gviz-script');
+    if (oldScript) oldScript.remove();
 
-      const csvText = await response.text();
-      const dados = parseCSV(csvText);
+    // Cria tag <script> dinamicamente para burlar o bloqueio de CORS (JSONP)
+    const script = document.createElement('script');
+    script.id = 'gviz-script';
+    script.src = `https://docs.google.com/spreadsheets/d/e/2PACX-${SPREADSHEET_ID}/gviz/tq?tqx=responseHandler:processarDadosGoogle`;
+    
+    script.onerror = () => {
+      exibirErro('Erro ao se conectar com a base de dados. Tente novamente mais tarde.');
+    };
 
-      const registrosEncontrados = dados.filter(item => {
-        const primeiraChave = Object.keys(item)[0];
-        const idColuna = item['driver_id'] || item['ID'] || item['id'] || item[primeiraChave];
-        return idColuna && String(idColuna).trim().toLowerCase() === idBuscado.toLowerCase();
-      });
-
-      if (registrosEncontrados.length > 0) {
-        statusDiv.innerText = '';
-
-        registrosEncontrados.forEach(registro => {
-          const card = document.createElement('div');
-          card.className = 'info-card';
-
-          camposPermitidos.forEach(campo => {
-            const valor = obterValorColuna(registro, campo.labels);
-
-            const itemDiv = document.createElement('div');
-            itemDiv.className = 'info-item';
-
-            const label = document.createElement('span');
-            label.className = 'info-label';
-            label.innerText = campo.key;
-
-            const val = document.createElement('span');
-            val.className = 'info-value';
-            val.innerText = valor;
-
-            itemDiv.appendChild(label);
-            itemDiv.appendChild(val);
-            card.appendChild(itemDiv);
-          });
-
-          cardsGrid.appendChild(card);
-        });
-      } else {
-        statusDiv.className = 'status-msg error';
-        statusDiv.innerText = 'Nenhum registro encontrado para este ID.';
-      }
-    } catch (error) {
-      console.error(error);
-      statusDiv.className = 'status-msg error';
-      statusDiv.innerText = 'Erro ao se conectar com a base de dados. Tente novamente mais tarde.';
-    }
+    document.body.appendChild(script);
   }
 </script>
