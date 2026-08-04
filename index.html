@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Stuck de Motoristas - Consulta por ID</title>
   <!-- Biblioteca PapaParse para leitura fácil de CSV -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     :root {
       --primary: #2563eb;
@@ -13,6 +13,7 @@
       --card-bg: #ffffff;
       --text: #1e293b;
       --border: #e2e8f0;
+      --label-color: #64748b;
     }
 
     * {
@@ -27,38 +28,43 @@
       color: var(--text);
       display: flex;
       justify-content: center;
-      align-items: center;
+      align-items: flex-start;
       min-height: 100vh;
       padding: 20px;
     }
 
     .container {
-      background: var(--card-bg);
       width: 100%;
-      max-width: 500px;
-      padding: 30px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .search-card {
+      background: var(--card-bg);
+      padding: 24px;
       border-radius: 12px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      margin-bottom: 24px;
+      text-align: center;
     }
 
     h1 {
       font-size: 1.5rem;
-      margin-bottom: 8px;
-      text-align: center;
+      margin-bottom: 6px;
       color: var(--text);
     }
 
     p.subtitle {
       font-size: 0.9rem;
-      color: #64748b;
-      text-align: center;
-      margin-bottom: 24px;
+      color: var(--label-color);
+      margin-bottom: 20px;
     }
 
     .search-box {
       display: flex;
       gap: 10px;
-      margin-bottom: 20px;
+      max-width: 450px;
+      margin: 0 auto;
     }
 
     input {
@@ -90,34 +96,53 @@
       opacity: 0.9;
     }
 
-    .result-card {
-      margin-top: 20px;
-      border-top: 1px solid var(--border);
-      padding-top: 20px;
-      display: none;
+    /* Grid dos cards pequenos */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
     }
 
-    .info-group {
-      margin-bottom: 12px;
+    .info-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .info-item {
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px dashed var(--border);
+      padding-bottom: 4px;
+    }
+
+    .info-item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
     }
 
     .info-label {
-      font-size: 0.85rem;
+      font-size: 0.72rem;
+      font-weight: 700;
       text-transform: uppercase;
-      color: #64748b;
-      font-weight: 600;
-      margin-bottom: 2px;
+      color: var(--label-color);
     }
 
     .info-value {
-      font-size: 1.1rem;
+      font-size: 0.92rem;
+      font-weight: 500;
       color: var(--text);
       word-break: break-word;
     }
 
     .status-msg {
       text-align: center;
-      margin-top: 15px;
+      margin: 15px 0;
       font-size: 0.95rem;
     }
 
@@ -133,40 +158,64 @@
 <body>
 
   <div class="container">
-    <h1>Stuck de Motoristas</h1>
-    <p class="subtitle">Digite o seu ID intransferível para consultar as informações.</p>
-    
-    <div class="search-box">
-      <input type="text" id="idInput" placeholder="Digite seu ID..." />
-      <button onclick="buscarInformacoes()">Buscar</button>
+    <div class="search-card">
+      <h1>Stuck de Motoristas</h1>
+      <p class="subtitle">Digite o seu ID intransferível para consultar os pacotes.</p>
+      
+      <div class="search-box">
+        <input type="text" id="idInput" placeholder="Digite o ID..." />
+        <button onclick="buscarInformacoes()">Buscar</button>
+      </div>
+
+      <div id="status" class="status-msg"></div>
     </div>
 
-    <div id="status" class="status-msg"></div>
-
-    <div id="resultCard" class="result-card"></div>
+    <!-- Container onde os cards serão renderizados -->
+    <div id="cardsGrid" class="cards-grid"></div>
   </div>
 
   <script>
-    // URL via Corsproxy para evitar bloqueios do navegador
+    // Link direto de exportação via Corsproxy
     const CSV_URL = 'https://corsproxy.io/?' + encodeURIComponent('https://docs.google.com/spreadsheets/d/e/2PACX-1vSQMATMAFhb-UsfR4uX-nmjZRS4kJEXWBYcp0-EezWCZVDuSasM7uEnZuSmFxMJHOrfEdcqlL27pZGY/pub?gid=0&single=true&output=csv');
+
+    // Mapeamento das chaves solicitadas e possíveis nomes de colunas na planilha
+    const camposPermitidos = [
+      { key: 'data_coleta', labels: ['data_coleta', 'data coleta', 'Data Coleta'] },
+      { key: 'codigo_br', labels: ['codigo_br', 'Código do Pacote', 'codigo do pacote', 'codigo_pacote'] },
+      { key: 'nome_motorista', labels: ['nome_motorista', 'Motorista', 'motorista', 'Nome Motorista'] },
+      { key: 'shop_id', labels: ['shop_id', 'Shop ID', 'shop id'] },
+      { key: 'loja', labels: ['loja', 'Loja'] },
+      { key: 'cidade_loja', labels: ['cidade_loja', 'Cidade Loja', 'cidade'] },
+      { key: 'valor_pacote_brl', labels: ['valor_pacote_brl', 'Valor Pacote (BRL)', 'valor_pacote'] }
+    ];
+
+    function obterValorColuna(row, aliases) {
+      for (const alias of aliases) {
+        // Busca ignorando maiúsculas e minúsculas nos nomes das colunas
+        const chaveEncontrada = Object.keys(row).find(k => k.trim().toLowerCase() === alias.toLowerCase());
+        if (chaveEncontrada && row[chaveEncontrada] !== undefined) {
+          return row[chaveEncontrada];
+        }
+      }
+      return 'N/A';
+    }
 
     function buscarInformacoes() {
       const idBuscado = document.getElementById('idInput').value.trim();
       const statusDiv = document.getElementById('status');
-      const resultCard = document.getElementById('resultCard');
+      const cardsGrid = document.getElementById('cardsGrid');
 
       if (!idBuscado) {
         statusDiv.className = 'status-msg error';
         statusDiv.innerText = 'Por favor, digite um ID para buscar.';
-        resultCard.style.display = 'none';
+        cardsGrid.innerHTML = '';
         return;
       }
 
       statusDiv.className = 'status-msg loading';
       statusDiv.innerText = 'Carregando dados...';
-      resultCard.style.display = 'none';
+      cardsGrid.innerHTML = '';
 
-      // PapaParse faz o download e interpretação automática do CSV
       Papa.parse(CSV_URL, {
         download: true,
         header: true,
@@ -174,38 +223,44 @@
         complete: function(results) {
           const dados = results.data;
 
-          // Localiza a linha equivalente ao ID digitado
-          const registroEncontrado = dados.find(item => {
+          // Filtra todas as linhas correspondentes ao ID buscado
+          const registrosEncontrados = dados.filter(item => {
             const primeiraChave = Object.keys(item)[0];
-            const idColuna = item['ID'] || item['id'] || item[primeiraChave];
+            const idColuna = item['driver_id'] || item['ID'] || item['id'] || item[primeiraChave];
             return idColuna && String(idColuna).trim().toLowerCase() === idBuscado.toLowerCase();
           });
 
-          if (registroEncontrado) {
+          if (registrosEncontrados.length > 0) {
             statusDiv.innerText = '';
-            resultCard.innerHTML = '';
 
-            Object.entries(registroEncontrado).forEach(([coluna, valor]) => {
-              const group = document.createElement('div');
-              group.className = 'info-group';
+            registrosEncontrados.forEach(registro => {
+              const card = document.createElement('div');
+              card.className = 'info-card';
 
-              const label = document.createElement('div');
-              label.className = 'info-label';
-              label.innerText = coluna;
+              camposPermitidos.forEach(campo => {
+                const valor = obterValorColuna(registro, campo.labels);
 
-              const val = document.createElement('div');
-              val.className = 'info-value';
-              val.innerText = valor || 'N/A';
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'info-item';
 
-              group.appendChild(label);
-              group.appendChild(val);
-              resultCard.appendChild(group);
+                const label = document.createElement('span');
+                label.className = 'info-label';
+                label.innerText = campo.key;
+
+                const val = document.createElement('span');
+                val.className = 'info-value';
+                val.innerText = valor || 'N/A';
+
+                itemDiv.appendChild(label);
+                itemDiv.appendChild(val);
+                card.appendChild(itemDiv);
+              });
+
+              cardsGrid.appendChild(card);
             });
-
-            resultCard.style.display = 'block';
           } else {
             statusDiv.className = 'status-msg error';
-            statusDiv.innerText = 'ID não encontrado. Por favor, confirme se digitou corretamente.';
+            statusDiv.innerText = 'Nenhum registro encontrado para este ID.';
           }
         },
         error: function(err) {
