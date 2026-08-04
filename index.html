@@ -4,8 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Stuck de Motoristas - Consulta por ID</title>
-  <!-- Biblioteca PapaParse para leitura fácil de CSV -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     :root {
       --primary: #2563eb;
@@ -96,7 +94,6 @@
       opacity: 0.9;
     }
 
-    /* Grid dos cards pequenos */
     .cards-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -170,15 +167,14 @@
       <div id="status" class="status-msg"></div>
     </div>
 
-    <!-- Container onde os cards serão renderizados -->
     <div id="cardsGrid" class="cards-grid"></div>
   </div>
 
   <script>
-    // Link direto de exportação via Corsproxy
-    const CSV_URL = 'https://corsproxy.io/?' + encodeURIComponent('https://docs.google.com/spreadsheets/d/e/2PACX-1vSQMATMAFhb-UsfR4uX-nmjZRS4kJEXWBYcp0-EezWCZVDuSasM7uEnZuSmFxMJHOrfEdcqlL27pZGY/pub?gid=0&single=true&output=csv');
+    // URL da planilha enviada via proxy AllOrigins
+    const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSQMATMAFhb-UsfR4uX-nmjZRS4kJEXWBYcp0-EezWCZVDuSasM7uEnZuSmFxMJHOrfEdcqlL27pZGY/pub?gid=0&single=true&output=csv';
+    const PROXY_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(SHEET_URL);
 
-    // Mapeamento das chaves solicitadas e possíveis nomes de colunas na planilha
     const camposPermitidos = [
       { key: 'data_coleta', labels: ['data_coleta', 'data coleta', 'Data Coleta'] },
       { key: 'codigo_br', labels: ['codigo_br', 'Código do Pacote', 'codigo do pacote', 'codigo_pacote'] },
@@ -189,18 +185,36 @@
       { key: 'valor_pacote_brl', labels: ['valor_pacote_brl', 'Valor Pacote (BRL)', 'valor_pacote'] }
     ];
 
+    function parseCSV(text) {
+      const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+      if (lines.length === 0) return [];
+
+      // Extrai cabeçalhos removendo aspas extras
+      const headers = lines[0].split(',').map(h => h.replace(/^"(.*)"$/, '$1').trim());
+
+      return lines.slice(1).map(line => {
+        const values = line.split(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/);
+        const row = {};
+        headers.forEach((header, index) => {
+          let val = values[index] ? values[index].trim() : '';
+          val = val.replace(/^"(.*)"$/, '$1').trim();
+          row[header] = val;
+        });
+        return row;
+      });
+    }
+
     function obterValorColuna(row, aliases) {
       for (const alias of aliases) {
-        // Busca ignorando maiúsculas e minúsculas nos nomes das colunas
         const chaveEncontrada = Object.keys(row).find(k => k.trim().toLowerCase() === alias.toLowerCase());
-        if (chaveEncontrada && row[chaveEncontrada] !== undefined) {
+        if (chaveEncontrada && row[chaveEncontrada] !== undefined && row[chaveEncontrada] !== '') {
           return row[chaveEncontrada];
         }
       }
       return 'N/A';
     }
 
-    function buscarInformacoes() {
+    async function buscarInformacoes() {
       const idBuscado = document.getElementById('idInput').value.trim();
       const statusDiv = document.getElementById('status');
       const cardsGrid = document.getElementById('cardsGrid');
@@ -216,59 +230,56 @@
       statusDiv.innerText = 'Carregando dados...';
       cardsGrid.innerHTML = '';
 
-      Papa.parse(CSV_URL, {
-        download: true,
-        header: true,
-        skipEmptyLines: true,
-        complete: function(results) {
-          const dados = results.data;
+      try {
+        const response = await fetch(PROXY_URL);
+        if (!response.ok) throw new Error('Falha ao baixar os dados');
 
-          // Filtra todas as linhas correspondentes ao ID buscado
-          const registrosEncontrados = dados.filter(item => {
-            const primeiraChave = Object.keys(item)[0];
-            const idColuna = item['driver_id'] || item['ID'] || item['id'] || item[primeiraChave];
-            return idColuna && String(idColuna).trim().toLowerCase() === idBuscado.toLowerCase();
-          });
+        const csvText = await response.text();
+        const dados = parseCSV(csvText);
 
-          if (registrosEncontrados.length > 0) {
-            statusDiv.innerText = '';
+        const registrosEncontrados = dados.filter(item => {
+          const primeiraChave = Object.keys(item)[0];
+          const idColuna = item['driver_id'] || item['ID'] || item['id'] || item[primeiraChave];
+          return idColuna && String(idColuna).trim().toLowerCase() === idBuscado.toLowerCase();
+        });
 
-            registrosEncontrados.forEach(registro => {
-              const card = document.createElement('div');
-              card.className = 'info-card';
+        if (registrosEncontrados.length > 0) {
+          statusDiv.innerText = '';
 
-              camposPermitidos.forEach(campo => {
-                const valor = obterValorColuna(registro, campo.labels);
+          registrosEncontrados.forEach(registro => {
+            const card = document.createElement('div');
+            card.className = 'info-card';
 
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'info-item';
+            camposPermitidos.forEach(campo => {
+              const valor = obterValorColuna(registro, campo.labels);
 
-                const label = document.createElement('span');
-                label.className = 'info-label';
-                label.innerText = campo.key;
+              const itemDiv = document.createElement('div');
+              itemDiv.className = 'info-item';
 
-                const val = document.createElement('span');
-                val.className = 'info-value';
-                val.innerText = valor || 'N/A';
+              const label = document.createElement('span');
+              label.className = 'info-label';
+              label.innerText = campo.key;
 
-                itemDiv.appendChild(label);
-                itemDiv.appendChild(val);
-                card.appendChild(itemDiv);
-              });
+              const val = document.createElement('span');
+              val.className = 'info-value';
+              val.innerText = valor;
 
-              cardsGrid.appendChild(card);
+              itemDiv.appendChild(label);
+              itemDiv.appendChild(val);
+              card.appendChild(itemDiv);
             });
-          } else {
-            statusDiv.className = 'status-msg error';
-            statusDiv.innerText = 'Nenhum registro encontrado para este ID.';
-          }
-        },
-        error: function(err) {
-          console.error(err);
+
+            cardsGrid.appendChild(card);
+          });
+        } else {
           statusDiv.className = 'status-msg error';
-          statusDiv.innerText = 'Erro ao se conectar com a base de dados. Tente novamente mais tarde.';
+          statusDiv.innerText = 'Nenhum registro encontrado para este ID.';
         }
-      });
+      } catch (error) {
+        console.error(error);
+        statusDiv.className = 'status-msg error';
+        statusDiv.innerText = 'Erro ao se conectar com a base de dados. Tente novamente mais tarde.';
+      }
     }
   </script>
 </body>
